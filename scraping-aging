@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import secrets
+
+import websocket
+
+ap = argparse.ArgumentParser()
+ap.add_argument('vol', metavar='VOLUME', type=int)
+ap.add_argument('pg', metavar='PAGE', type=int)
+opt = ap.parse_args()
+socket = websocket.WebSocket()
+url = f'wss://www.aging-us.com/sockjs/{secrets.randbelow(1000)}/{secrets.token_urlsafe(8)}/websocket'
+socket.connect(url)
+socket.send(r'["{\"msg\":\"connect\",\"version\":\"1\",\"support\":[\"1\",\"pre2\",\"pre1\"]}"]')
+socket.send(r'["{\"msg\":\"sub\",\"id\":\"0\",\"name\":\"articleByVolumePage\",\"params\":[' + f'{opt.vol},{opt.pg}' + ']}"]')
+while True:
+    msg = socket.recv()
+    if msg.startswith('a[') and msg.endswith(']'):
+        [msg] = json.loads(msg[1:])
+        msg = json.loads(msg)
+        msgtype = msg.get('msg')
+        if msgtype == 'added' and msg['collection'] == 'articles':
+            pii = msg['fields']['ids']['pii']
+            socket.send(r'["{\"msg\":\"method\",\"method\":\"getArticle\",\"params\":[\"' + pii + r'\"],\"id\":\"1\"}"]')
+        elif msgtype == 'result' and msg['id'] == '1':
+            url = msg['result']['article']['files']['pdf']['url']
+            print(url)
+            break  # yay, done!
+        elif msgtype == 'ping':
+            raise RuntimeError('unexpected ping')
+
+# vim:ts=4 sts=4 sw=4 et
