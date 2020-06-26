@@ -13,8 +13,13 @@ opt = ap.parse_args()
 socket = websocket.WebSocket()
 url = f'wss://www.aging-us.com/sockjs/{secrets.randbelow(1000)}/{secrets.token_urlsafe(8)}/websocket'
 socket.connect(url)
-socket.send(r'["{\"msg\":\"connect\",\"version\":\"1\",\"support\":[\"1\",\"pre2\",\"pre1\"]}"]')
-socket.send(r'["{\"msg\":\"sub\",\"id\":\"0\",\"name\":\"articleByVolumePage\",\"params\":[' + f'{opt.vol},{opt.pg}' + ']}"]')
+def send_msg(**data):
+    csep = (',', ':')
+    msg = json.dumps(data, separators=csep)
+    msg = json.dumps([msg], separators=csep)
+    return socket.send(msg)
+send_msg(msg='connect', version='1', support=['1', 'pre2', 'pre1'])
+send_msg(msg='sub', id='0', name='articleByVolumePage', params=[opt.vol, opt.pg])
 while True:
     msg = socket.recv()
     if msg.startswith('a[') and msg.endswith(']'):
@@ -23,7 +28,7 @@ while True:
         msgtype = msg.get('msg')
         if msgtype == 'added' and msg['collection'] == 'articles':
             pii = msg['fields']['ids']['pii']
-            socket.send(r'["{\"msg\":\"method\",\"method\":\"getArticle\",\"params\":[\"' + pii + r'\"],\"id\":\"1\"}"]')
+            send_msg(msg='method', method='getArticle', params=[pii], id='1')
         elif msgtype == 'result' and msg['id'] == '1':
             url = msg['result']['article']['files']['pdf']['url']
             print(url)
