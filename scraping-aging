@@ -5,14 +5,34 @@
 
 import argparse
 import json
+import re
 import secrets
+import urllib.parse
 
 import websocket
 
 ap = argparse.ArgumentParser()
-ap.add_argument('vol', metavar='VOLUME', type=int)
-ap.add_argument('pg', metavar='PAGE', type=int)
+ap.add_argument('url', metavar='URL')
 opt = ap.parse_args()
+url = urllib.parse.urlparse(opt.url)
+if url.scheme not in {'http', 'https'}:
+    ap.error(f'unsupported URL: {opt.url}')
+if url.netloc not in {'www.impactaging.com', 'www.aging-us.com'}:
+    ap.error(f'unsupported URL: {opt.url}')
+path_regexps = [
+    r'/papers/v\d+/n\d+/pdf/(?P<pii>\d+)[.]pdf',
+    r'/papers/v\d+/n\d+/full/(?P<pii>\d+)[.]html',
+    r'/full/(?P<vol>\d+)/(?P<pg>\d+)',
+    r'/article/(?P<pii>\d+)/text',
+]
+for path_regexp in path_regexps:
+    path_regexp = re.compile(fr'\A(?:{path_regexp})\Z')
+    match = path_regexp.match(url.path)
+    if match is not None:
+        break
+if match is None:
+    ap.error(f'unsupported URL: {opt.url}')
+urlinfo = match.groupdict()
 socket = websocket.WebSocket()
 url = f'wss://www.aging-us.com/sockjs/{secrets.randbelow(1000)}/{secrets.token_urlsafe(8)}/websocket'
 socket.connect(url)
@@ -22,7 +42,12 @@ def send_msg(**data):
     msg = json.dumps([msg], separators=csep)
     return socket.send(msg)
 send_msg(msg='connect', version='1', support=['1', 'pre2', 'pre1'])
-send_msg(msg='sub', id='0', name='articleByVolumePage', params=[opt.vol, opt.pg])
+if 'pii' in urlinfo:
+    send_msg(msg='method', method='getArticle', params=[urlinfo['pii']], id='1')
+else:
+    vol = int(urlinfo['vol'])
+    pg = int(urlinfo['pg'])
+    send_msg(msg='sub', id='0', name='articleByVolumePage', params=[vol, pg])
 while True:
     msg = socket.recv()
     if msg.startswith('a[') and msg.endswith(']'):
